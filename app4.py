@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-import itertools
 import random
+import itertools
 
 st.set_page_config(page_title="EPP 1 Revenue Forecast Simulator", layout="wide")
 st.title("EPP 1 Revenue Forecast Simulator")
@@ -14,17 +14,17 @@ st.sidebar.header("Simulation Settings")
 months = st.sidebar.slider("Number of Months (Forecast Period)", 1, 12, 6)
 net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
 coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
-num_mixed_deal_plans = st.sidebar.number_input("Number of Deal Plans to Simulate", value=50000, step=1000)
+num_mixed_deal_plans = st.sidebar.number_input("Number of Deal Plans to Simulate", value=10000, step=1000)
 
 # Deal Ranges
-min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
-max_deals = st.sidebar.number_input("Max Deals per Month", value=3)
-deal_range = range(min_deals, max_deals + 1)
+min_deals = st.sidebar.number_input("Min Total Deals per Month", value=0)
+max_deals = st.sidebar.number_input("Max Total Deals per Month", value=3)
+deal_volume_range = range(min_deals, max_deals + 1)
 
-# Coaching Range is only used to compute total required, not for month-by-month plans
-min_coaching = st.sidebar.number_input("Min Coaching Clients (Total)", value=0)
-max_coaching = st.sidebar.number_input("Max Coaching Clients (Total)", value=20)
-coaching_total_range = range(min_coaching, max_coaching + 1)
+# Coaching Range
+min_coaching = st.sidebar.number_input("Min Coaching Clients per Month", value=0)
+max_coaching = st.sidebar.number_input("Max Coaching Clients per Month", value=3)
+coaching_range = range(min_coaching, max_coaching + 1)
 
 # Deal Values and Commission Rates
 st.sidebar.subheader("Deal Values")
@@ -76,52 +76,53 @@ st.markdown(f"**Total Monthly Expense:** ${total_expense_per_month:,.2f}")
 # RUN SIMULATION BUTTON
 # -------------------------
 if st.button("Run Simulation"):
-    monthly_deal_options = list(itertools.product(deal_range, deal_values, commission_rates))
+    coaching_plans = list(itertools.product(coaching_range, repeat=months))
+    deal_catalog = list(itertools.product(deal_values, commission_rates))
 
-    if len(monthly_deal_options) < months:
-        st.error("❌ Not enough unique deal types to sample without repetition. Increase deal variety.")
-        st.stop()
-
-    mixed_deal_plans = [
-        tuple(random.sample(monthly_deal_options, k=months))
-        for _ in range(int(num_mixed_deal_plans))
-    ]
+    # Randomly create deal plan options (diverse per month)
+    mixed_deal_plans = []
+    for _ in range(int(num_mixed_deal_plans)):
+        plan = []
+        for _ in range(months):
+            num_deals = random.randint(min_deals, max_deals)
+            month_deals = [random.choice(deal_catalog) for _ in range(num_deals)]
+            plan.append(month_deals)
+        mixed_deal_plans.append(plan)
 
     results = []
 
     with st.spinner("Running simulation..."):
-        for coaching_total in coaching_total_range:
-            coaching_revenue = coaching_total * coaching_price
+        for coaching_per_month in coaching_plans:
+            coaching_revenue = sum(c * coaching_price for c in coaching_per_month)
 
             for d_plan in mixed_deal_plans:
-                monthly_commission_2025 = [0] * months
+                monthly_commission = [0] * months
 
-                for i, (deal_count, deal_value, commission_rate) in enumerate(d_plan):
-                    if deal_count == 0:
-                        continue
-                    commission_per_deal = deal_value * commission_rate
-                    total_commission = deal_count * commission_per_deal
-                    monthly_payment = total_commission / 12
-                    for j in range(i + 2, i + 14):
-                        if j >= months:
-                            break
-                        monthly_commission_2025[j] += monthly_payment
+                for i, deals in enumerate(d_plan):
+                    for deal_value, commission_rate in deals:
+                        commission = deal_value * commission_rate
+                        monthly_payment = commission / 12
+                        for j in range(i + 2, i + 14):
+                            if j >= months:
+                                break
+                            monthly_commission[j] += monthly_payment
 
-                commission_revenue = sum(monthly_commission_2025)
+                commission_revenue = sum(monthly_commission)
                 total_revenue = coaching_revenue + commission_revenue
                 total_expenses = total_expense_per_month * months
                 net_profit = total_revenue - total_expenses
 
                 if net_profit >= net_target:
+                    deal_flat_list = [f"{v},{r}" for month in d_plan for (v, r) in month]
                     results.append({
-                        "Coaching Clients (Total)": coaching_total,
-                        "Deal Plan": d_plan,
-                        "Total Coaching Revenue": coaching_revenue,
-                        "Total Deal Revenue (Recognized 2025)": commission_revenue,
+                        "Total Coaching Clients": sum(coaching_per_month),
+                        "Deal Plan": ",".join(deal_flat_list),
+                        "Coaching Revenue": coaching_revenue,
+                        "Deal Revenue (Recognized)": commission_revenue,
                         "Total Revenue": round(total_revenue, 2),
                         "Net Profit": round(net_profit, 2),
-                        "Total Deals": sum([d[0] for d in d_plan]),
-                        "Workload Score": coaching_total + sum([d[0] for d in d_plan])
+                        "Total Deals": sum(len(month) for month in d_plan),
+                        "Workload Score": sum(coaching_per_month) + sum(len(month) for month in d_plan)
                     })
 
     # -------------------------
