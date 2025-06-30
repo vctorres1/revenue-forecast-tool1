@@ -30,7 +30,7 @@ deal_range = range(min_deals, max_deals + 1)
 st.sidebar.subheader("Deal Values")
 deal_values = st.sidebar.multiselect(
     "Select Deal Values",
-    [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000],
+    [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000],
     default=[500_000, 1_500_000, 2_500_000]
 )
 
