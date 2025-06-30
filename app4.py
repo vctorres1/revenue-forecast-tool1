@@ -14,8 +14,12 @@ st.sidebar.header("Simulation Settings")
 months = st.sidebar.slider("Number of Months (Forecast Period)", 1, 12, 6)
 net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
 coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
-coaching_clients = st.sidebar.number_input("Total Coaching Engagements (Upfront Payment)", value=5, min_value=0)
 num_mixed_deal_plans = st.sidebar.number_input("Number of Deal Plans to Simulate", value=50000, step=1000)
+
+# Coaching Clients
+min_coaching = st.sidebar.number_input("Min Coaching Clients (Total)", value=0)
+max_coaching = st.sidebar.number_input("Max Coaching Clients (Total)", value=18)
+coaching_totals = range(min_coaching, max_coaching + 1)
 
 # Deal Ranges
 min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
@@ -76,39 +80,41 @@ if st.button("Run Simulation"):
     mixed_deal_plans = [tuple(random.choices(monthly_deal_options, k=months)) for _ in range(int(num_mixed_deal_plans))]
 
     results = []
-    coaching_revenue = coaching_clients * coaching_price
 
     with st.spinner("Running simulation..."):
-        for d_plan in mixed_deal_plans:
-            monthly_commission_2025 = [0] * months
+        for coaching_clients in coaching_totals:
+            coaching_revenue = coaching_clients * coaching_price
 
-            for i, (deal_count, deal_value, commission_rate) in enumerate(d_plan):
-                if deal_count == 0:
-                    continue
-                commission_per_deal = deal_value * commission_rate
-                total_commission = deal_count * commission_per_deal
-                monthly_payment = total_commission / 12
-                for j in range(i + 2, i + 14):
-                    if j >= months:
-                        break
-                    monthly_commission_2025[j] += monthly_payment
+            for d_plan in mixed_deal_plans:
+                monthly_commission_2025 = [0] * months
 
-            commission_revenue = sum(monthly_commission_2025)
-            total_revenue = coaching_revenue + commission_revenue
-            total_expenses = total_expense_per_month * months
-            net_profit = total_revenue - total_expenses
+                for i, (deal_count, deal_value, commission_rate) in enumerate(d_plan):
+                    if deal_count == 0:
+                        continue
+                    commission_per_deal = deal_value * commission_rate
+                    total_commission = deal_count * commission_per_deal
+                    monthly_payment = total_commission / 12
+                    for j in range(i + 2, i + 14):
+                        if j >= months:
+                            break
+                        monthly_commission_2025[j] += monthly_payment
 
-            if net_profit >= net_target:
-                results.append({
-                    "Deal Plan": d_plan,
-                    "Total Coaching Revenue": coaching_revenue,
-                    "Total Deal Revenue (Recognized 2025)": commission_revenue,
-                    "Total Revenue": round(total_revenue, 2),
-                    "Net Profit": round(net_profit, 2),
-                    "Total Coaching": coaching_clients,
-                    "Total Deals": sum([d[0] for d in d_plan]),
-                    "Workload Score": coaching_clients + sum([d[0] for d in d_plan])
-                })
+                commission_revenue = sum(monthly_commission_2025)
+                total_revenue = coaching_revenue + commission_revenue
+                total_expenses = total_expense_per_month * months
+                net_profit = total_revenue - total_expenses
+
+                if net_profit >= net_target:
+                    results.append({
+                        "Coaching Clients": coaching_clients,
+                        "Deal Plan": d_plan,
+                        "Total Coaching Revenue": coaching_revenue,
+                        "Total Deal Revenue (Recognized 2025)": commission_revenue,
+                        "Total Revenue": round(total_revenue, 2),
+                        "Net Profit": round(net_profit, 2),
+                        "Total Deals": sum([d[0] for d in d_plan]),
+                        "Workload Score": coaching_clients + sum([d[0] for d in d_plan])
+                    })
 
     # -------------------------
     # OUTPUT
