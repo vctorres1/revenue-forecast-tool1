@@ -48,10 +48,13 @@ st.markdown("## Monthly Expenses")
 
 if "expenses" not in st.session_state:
     st.session_state.expenses = [
-        {"label": "VA Salary", "amount": 2009.0},
-        {"label": "Automation Tools", "amount": 250.0},
-        {"label": "Marketing", "amount": 6000.0},
-        {"label": "Software/Tools", "amount": 600.0},
+        {"label": "Travel & Expenses", "amount": 0.0},
+        {"label": "Marketing Costs", "amount": 0.0},
+        {"label": "Marketing Agency", "amount": 0.0},
+        {"label": "AI/Automations", "amount": 0.0},
+        {"label": "Software & SaaS Tools", "amount": 0.0},
+        {"label": "Legal & Compliance Fees", "amount": 0.0},
+        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 0.0},
     ]
 
 for i, exp in enumerate(st.session_state.expenses):
