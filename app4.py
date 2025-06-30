@@ -16,15 +16,15 @@ net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
 coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
 num_mixed_deal_plans = st.sidebar.number_input("Number of Deal Plans to Simulate", value=50000, step=1000)
 
-# Coaching Clients
-min_coaching = st.sidebar.number_input("Min Coaching Clients (Total)", value=0)
-max_coaching = st.sidebar.number_input("Max Coaching Clients (Total)", value=18)
-coaching_totals = range(min_coaching, max_coaching + 1)
-
 # Deal Ranges
 min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
 max_deals = st.sidebar.number_input("Max Deals per Month", value=3)
 deal_range = range(min_deals, max_deals + 1)
+
+# Coaching Range is only used to compute total required, not for month-by-month plans
+min_coaching = st.sidebar.number_input("Min Coaching Clients (Total)", value=0)
+max_coaching = st.sidebar.number_input("Max Coaching Clients (Total)", value=20)
+coaching_total_range = range(min_coaching, max_coaching + 1)
 
 # Deal Values and Commission Rates
 st.sidebar.subheader("Deal Values")
@@ -77,13 +77,21 @@ st.markdown(f"**Total Monthly Expense:** ${total_expense_per_month:,.2f}")
 # -------------------------
 if st.button("Run Simulation"):
     monthly_deal_options = list(itertools.product(deal_range, deal_values, commission_rates))
-    mixed_deal_plans = [tuple(random.choices(monthly_deal_options, k=months)) for _ in range(int(num_mixed_deal_plans))]
+
+    if len(monthly_deal_options) < months:
+        st.error("❌ Not enough unique deal types to sample without repetition. Increase deal variety.")
+        st.stop()
+
+    mixed_deal_plans = [
+        tuple(random.sample(monthly_deal_options, k=months))
+        for _ in range(int(num_mixed_deal_plans))
+    ]
 
     results = []
 
     with st.spinner("Running simulation..."):
-        for coaching_clients in coaching_totals:
-            coaching_revenue = coaching_clients * coaching_price
+        for coaching_total in coaching_total_range:
+            coaching_revenue = coaching_total * coaching_price
 
             for d_plan in mixed_deal_plans:
                 monthly_commission_2025 = [0] * months
@@ -106,14 +114,14 @@ if st.button("Run Simulation"):
 
                 if net_profit >= net_target:
                     results.append({
-                        "Coaching Clients": coaching_clients,
+                        "Coaching Clients (Total)": coaching_total,
                         "Deal Plan": d_plan,
                         "Total Coaching Revenue": coaching_revenue,
                         "Total Deal Revenue (Recognized 2025)": commission_revenue,
                         "Total Revenue": round(total_revenue, 2),
                         "Net Profit": round(net_profit, 2),
                         "Total Deals": sum([d[0] for d in d_plan]),
-                        "Workload Score": coaching_clients + sum([d[0] for d in d_plan])
+                        "Workload Score": coaching_total + sum([d[0] for d in d_plan])
                     })
 
     # -------------------------
