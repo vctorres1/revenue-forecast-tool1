@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import itertools
 import random
+import time
+import gc
 
 st.set_page_config(page_title="EPP 1 Revenue Forecast Simulator", layout="wide")
 st.title("EPP 1 Revenue Forecast Simulator")
@@ -14,18 +16,16 @@ st.sidebar.header("Simulation Settings")
 months = st.sidebar.slider("Number of Months (Forecast Period)", 1, 12, 6)
 net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
 coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
-num_mixed_deal_plans = st.sidebar.number_input("Number of Deal Plans to Simulate", value=10000, step=1000)
-num_coaching_plans = st.sidebar.number_input("Number of Coaching Plans to Simulate", value=500, step=100)
+total_deal_plans = st.sidebar.number_input("Total Number of Deal Plans to Simulate", value=1_000_000, step=100_000)
+batch_size = st.sidebar.number_input("Batch Size", value=100_000, step=10_000)
 
 # Deal Ranges
 min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
 max_deals = st.sidebar.number_input("Max Deals per Month", value=3)
 deal_range = range(min_deals, max_deals + 1)
 
-# Coaching Ranges
-min_coaching = st.sidebar.number_input("Min Coaching Clients per Month", value=0)
-max_coaching = st.sidebar.number_input("Max Coaching Clients per Month", value=3)
-coaching_range = list(range(min_coaching, max_coaching + 1))
+# Coaching Total
+total_coaching_engagements = st.sidebar.number_input("Total Coaching Engagements (within period)", value=5)
 
 # Deal Values and Commission Rates
 st.sidebar.subheader("Deal Values")
@@ -43,22 +43,19 @@ commission_rates = st.sidebar.multiselect(
 )
 
 # -------------------------
-# EXPENSES
+# EXPENSES (Main Body)
 # -------------------------
 st.markdown("## Monthly Expenses")
 
 if "expenses" not in st.session_state:
     st.session_state.expenses = [
-        {"label": "Travel & Expenses", "amount": 6000.0},
-        {"label": "Marketing Costs", "amount": 600.0},
-        {"label": "Marketing Agency", "amount": 3000.0},
-        {"label": "AI/Automations", "amount": 250.0},
-        {"label": "Software & SaaS Tools", "amount": 600.0},
-        {"label": "Legal & Compliance Fees", "amount": 300.0},
-        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 300.0},
-        {"label": "FT VA Salary", "amount": 1200.0},
-        {"label": "PT VA Salary", "amount": 400.0},
-        {"label": "Finance VA Salary", "amount": 400.0}
+        {"label": "Travel & Expenses", "amount": 0.0},
+        {"label": "Marketing Costs", "amount": 0.0},
+        {"label": "Marketing Agency", "amount": 0.0},
+        {"label": "AI/Automations", "amount": 0.0},
+        {"label": "Software & SaaS Tools", "amount": 0.0},
+        {"label": "Legal & Compliance Fees", "amount": 0.0},
+        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 0.0},
     ]
 
 for i, exp in enumerate(st.session_state.expenses):
@@ -77,38 +74,38 @@ total_expense_per_month = sum(exp["amount"] for exp in st.session_state.expenses
 st.markdown(f"**Total Monthly Expense:** ${total_expense_per_month:,.2f}")
 
 # -------------------------
-# RUN SIMULATION
+# RUN SIMULATION BUTTON
 # -------------------------
 if st.button("Run Simulation"):
-    coaching_plans = [tuple(random.choices(coaching_range, k=months)) for _ in range(num_coaching_plans)]
+    progress = st.progress(0, text="Starting simulation...")
 
-    # Generate randomized per-month deal recommendations
-    monthly_deal_plans = []
-    for _ in range(int(num_mixed_deal_plans)):
-        monthly_plan = []
-        for _ in range(months):
-            month_deals = [
-                (1, random.choice(deal_values), random.choice(commission_rates))
-                for _ in range(random.randint(min_deals, max_deals))
-            ]
-            monthly_plan.append(month_deals)
-        monthly_deal_plans.append(monthly_plan)
+    coaching_revenue = total_coaching_engagements * coaching_price
+    monthly_deal_options = list(itertools.product(deal_range, deal_values, commission_rates))
+    total_batches = int(total_deal_plans // batch_size)
 
     results = []
-    progress_text = "🔄 Running simulation... please wait"
-    progress_bar = st.progress(0, text=progress_text)
 
-    for idx, c_plan in enumerate(coaching_plans):
-        coaching_revenue = sum(c * coaching_price for c in c_plan)
+    for batch_num in range(total_batches):
+        batch_progress = (batch_num + 1) / total_batches
+        progress.progress(batch_progress, text=f"Running batch {batch_num + 1} of {total_batches}...")
 
-        for d_plan in monthly_deal_plans:
+        # Generate a batch of deal plans where each month has varied individual deals
+        mixed_deal_plans = []
+        for _ in range(batch_size):
+            month_plan = []
+            for _ in range(months):
+                num_deals = random.choice(deal_range)
+                deals = [random.choice(list(itertools.product(deal_values, commission_rates))) for _ in range(num_deals)]
+                month_plan.append(deals)
+            mixed_deal_plans.append(month_plan)
+
+        for d_plan in mixed_deal_plans:
             monthly_commission_2025 = [0] * months
 
             for i, month_deals in enumerate(d_plan):
-                for deal_count, deal_value, commission_rate in month_deals:
+                for deal_value, commission_rate in month_deals:
                     commission_per_deal = deal_value * commission_rate
-                    total_commission = deal_count * commission_per_deal
-                    monthly_payment = total_commission / 12
+                    monthly_payment = commission_per_deal / 12
                     for j in range(i + 2, i + 14):
                         if j >= months:
                             break
@@ -121,17 +118,21 @@ if st.button("Run Simulation"):
 
             if net_profit >= net_target:
                 results.append({
+                    "Deal Plan": str(d_plan),
                     "Total Coaching Revenue": coaching_revenue,
                     "Total Deal Revenue (Recognized 2025)": commission_revenue,
                     "Total Revenue": round(total_revenue, 2),
                     "Net Profit": round(net_profit, 2),
-                    "Total Coaching": sum(c_plan),
-                    "Total Deals": sum(len(month) for month in d_plan),
-                    "Deal Plan": ",".join([f"{x[0]},{x[1]},{x[2]}" for month in d_plan for x in month]),
+                    "Total Coaching": total_coaching_engagements,
+                    "Total Deals": sum(len(m) for m in d_plan),
+                    "Workload Score": total_coaching_engagements + sum(len(m) for m in d_plan)
                 })
 
-        if idx % 10 == 0 or idx == len(coaching_plans) - 1:
-            progress_bar.progress((idx + 1) / len(coaching_plans), text=progress_text)
+        # Memory cleanup
+        del mixed_deal_plans
+        gc.collect()
+
+    progress.empty()
 
     # -------------------------
     # OUTPUT
@@ -139,7 +140,7 @@ if st.button("Run Simulation"):
     if results:
         st.success(f"✅ Found {len(results)} profitable scenario(s) meeting or exceeding ${net_target:,} target")
         df = pd.DataFrame(results)
-        df = df.sort_values(by=["Net Profit"], ascending=False).reset_index(drop=True)
+        df = df.sort_values(by=["Workload Score", "Net Profit"]).reset_index(drop=True)
         st.dataframe(df.head(100))
 
         csv = df.to_csv(index=False).encode('utf-8')
