@@ -1,96 +1,142 @@
 import streamlit as st
 import pandas as pd
-import itertools
-
-st.set_page_config(page_title="EPP 1 Revenue Forecaster", layout="wide")
-st.title("Greedy Revenue Forecast Simulator")
+import random
+import time
 
 # -------------------------
-# USER INPUTS
+# PAGE CONFIG
 # -------------------------
-st.sidebar.header("Simulation Settings")
+st.set_page_config(page_title="Revenue Forecast Simulator", layout="wide")
+st.title("💼 EPP 1 Revenue Forecast Simulator")
 
-months = st.sidebar.slider("Forecast Months", 1, 12, 6)
-net_target = st.sidebar.number_input("Net Profit Target ($)", value=1_000_000)
-coaching_price = st.sidebar.number_input("Coaching Price ($ per client)", value=8750)
+# -------------------------
+# SIDEBAR CONFIGURATION
+# -------------------------
+st.sidebar.header("🛠️ Simulation Settings")
+months = st.sidebar.slider("Number of Months", 1, 12, 6)
+net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
+coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
 
-# Deal inputs
-deal_values = st.sidebar.multiselect("Deal Values", [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000], default=[500_000, 1_500_000, 2_500_000])
-commission_rates = st.sidebar.multiselect("Commission Rates", [0.05, 0.07, 0.11, 0.13, 0.17], default=[0.05, 0.11, 0.17])
-max_deals_per_month = st.sidebar.number_input("Max Total Deals per Month", min_value=1, max_value=10, value=3)
+batch_size = st.sidebar.number_input("Batch Size (per iteration)", value=5000, step=1000)
+total_deal_plans = st.sidebar.number_input("Total Number of Deal Plans to Simulate", value=100000, step=10000)
 
-# Expenses
-total_expense_per_month = st.sidebar.number_input("Total Monthly Expense ($)", value=8859.0, step=100.0)
+min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
+max_deals = st.sidebar.number_input("Max Deals per Month", value=3)
+deal_count_range = list(range(min_deals, max_deals + 1))
+
+st.sidebar.subheader("Deal Values")
+deal_values = st.sidebar.multiselect("Select Deal Values", [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000], default=[500_000, 1_500_000, 2_500_000])
+
+st.sidebar.subheader("Commission Rates")
+commission_rates = st.sidebar.multiselect("Select Commission Rates", [0.05, 0.07, 0.11, 0.13, 0.17], default=[0.05, 0.11, 0.17])
+
+# -------------------------
+# EXPENSES
+# -------------------------
+st.markdown("## Monthly Expenses")
+
+if "expenses" not in st.session_state:
+    st.session_state.expenses = [
+        {"label": "Travel & Expenses", "amount": 6000.0},
+        {"label": "Marketing Costs", "amount": 600.0},
+        {"label": "Marketing Agency", "amount": 3000.0},
+        {"label": "Full-Time VA Salary", "amount": 1200.0},
+        {"label": "Part-Time VA Salary", "amount": 400.0},
+        {"label": "Finance VA Salary", "amount": 400.0},
+        {"label": "AI/Automations", "amount": 250.0},
+        {"label": "Software & SaaS Tools", "amount": 600.0},
+        {"label": "Legal & Compliance Fees", "amount": 300.0},
+        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 300.0}
+    ]
+
+for i, exp in enumerate(st.session_state.expenses):
+    col1, col2, col3 = st.columns([4, 3, 1])
+    exp["label"] = col1.text_input(f"Label {i+1}", value=exp["label"], key=f"label_{i}")
+    exp["amount"] = col2.number_input(f"Amount {i+1}", value=float(exp["amount"]), min_value=0.0, key=f"amount_{i}")
+    if col3.button("❌", key=f"remove_{i}"):
+        st.session_state.expenses.pop(i)
+        st.rerun()
+
+if st.button("Add Another Expense"):
+    st.session_state.expenses.append({"label": f"Expense {len(st.session_state.expenses)+1}", "amount": 0.0})
+    st.rerun()
+
+total_monthly_expense = sum(exp["amount"] for exp in st.session_state.expenses)
+st.markdown(f"**Total Monthly Expense:** ${total_monthly_expense:,.2f}")
 
 # -------------------------
 # SIMULATION ENGINE
 # -------------------------
-def simulate_greedy():
-    deal_options = [(v, r) for v in deal_values for r in commission_rates]
-    all_monthly_plans = []
-    monthly_commission = [0] * months
+if st.button("🚀 Run Simulation"):
+    start_time = time.time()
+    results = []
+    runs = int(total_deal_plans // batch_size)
+    deal_types = [(val, rate) for val in deal_values for rate in commission_rates]
 
-    for m in range(months):
-        month_plan = []
-        month_total = 0
+    progress_bar = st.progress(0)
+    status_placeholder = st.empty()
 
-        for _ in range(max_deals_per_month):
-            best_deal = None
-            best_value = 0
-            for deal_value, rate in deal_options:
-                commission = deal_value * rate / 12
-                if month_total + commission <= net_target:
-                    if commission > best_value:
-                        best_value = commission
-                        best_deal = (deal_value, rate)
+    for batch in range(runs):
+        for _ in range(batch_size):
+            deal_plan = []
+            commission_schedule = [0.0] * months
 
-            if best_deal:
-                month_plan.append(best_deal)
-                month_total += best_value
+            for month in range(months):
+                deals_this_month = []
+                for _ in range(random.choice(deal_count_range)):
+                    val, rate = random.choice(deal_types)
+                    deals_this_month.append((val, rate))
 
-        all_monthly_plans.append(month_plan)
+                    # Revenue recognition starts 2 months after closing, spread over 12 months
+                    commission = val * rate
+                    monthly_payment = commission / 12
+                    for offset in range(2, 14):
+                        future_month = month + offset
+                        if future_month < months:
+                            commission_schedule[future_month] += monthly_payment
 
-        for value, rate in month_plan:
-            commission = value * rate / 12
-            for j in range(m + 2, m + 14):
-                if j < months:
-                    monthly_commission[j] += commission
+                deal_plan.append(deals_this_month)
 
-    total_commission = sum(monthly_commission)
-    revenue_gap = net_target + (total_expense_per_month * months) - total_commission
-    coaching_needed = max(0, int(revenue_gap // coaching_price))
-    coaching_revenue = coaching_needed * coaching_price
-    total_revenue = total_commission + coaching_revenue
-    net_profit = total_revenue - total_expense_per_month * months
+            # Vary number of coaching clients
+            coaching_clients_total = random.randint(0, months * 3)
+            coaching_revenue = coaching_clients_total * coaching_price
+            deal_revenue = sum(commission_schedule)
+            total_revenue = coaching_revenue + deal_revenue
+            total_expense = total_monthly_expense * months
+            net_profit = total_revenue - total_expense
 
-    return {
-        "Monthly Deal Plans": all_monthly_plans,
-        "Monthly Recognized Commission": monthly_commission,
-        "Total Coaching Clients": coaching_needed,
-        "Total Commission Revenue": round(total_commission, 2),
-        "Coaching Revenue": round(coaching_revenue, 2),
-        "Total Revenue": round(total_revenue, 2),
-        "Net Profit": round(net_profit, 2),
-    }
+            if net_profit >= net_target:
+                # Flatten deal plan
+                flattened = []
+                for month_deals in deal_plan:
+                    for val, rate in month_deals:
+                        flattened.append((val, rate))
 
-# -------------------------
-# RUN SIMULATION
-# -------------------------
-if st.button("Run Simulation"):
-    with st.spinner("Simulating optimal revenue plan..."):
-        result = simulate_greedy()
+                results.append({
+                    "Total Coaching Clients": coaching_clients_total,
+                    "Total Coaching Revenue": coaching_revenue,
+                    "Total Deal Revenue": round(deal_revenue, 2),
+                    "Net Profit": round(net_profit, 2),
+                    "Total Revenue": round(total_revenue, 2),
+                    "Deal Plan (Flat)": ",".join([f"{val},{rate}" for val, rate in flattened])
+                })
 
-        st.subheader("📅 Monthly Deal Breakdown")
-        for idx, month in enumerate(result["Monthly Deal Plans"]):
-            st.markdown(f"**Month {idx + 1}**: " + ", ".join([f"${v:,}@{int(r*100)}%" for v, r in month]) or "No deals")
+        percent_complete = (batch + 1) / runs
+        progress_bar.progress(percent_complete)
+        status_placeholder.text(f"Processed batch {batch + 1} of {runs}")
 
-        st.subheader("📊 Results")
-        st.markdown(f"**Total Recognized Commission:** ${result['Total Commission Revenue']:,}")
-        st.markdown(f"**Coaching Clients Needed:** {result['Total Coaching Clients']} → Revenue = ${result['Coaching Revenue']:,}")
-        st.markdown(f"**Total Revenue:** ${result['Total Revenue']:,}")
-        st.markdown(f"**Net Profit:** ${result['Net Profit']:,}")
+    # -------------------------
+    # DISPLAY RESULTS
+    # -------------------------
+    if results:
+        st.success(f"✅ Found {len(results)} qualifying scenarios")
+        df = pd.DataFrame(results)
+        df = df.sort_values(by="Net Profit", ascending=False).reset_index(drop=True)
+        st.dataframe(df.head(100))
 
-        if result['Net Profit'] >= net_target:
-            st.success("✅ Success! Net profit target achieved.")
-        else:
-            st.warning("⚠️ Net profit target not met. Consider adjusting parameters.")
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Download Results as CSV", data=csv, file_name="forecast_results.csv", mime="text/csv")
+    else:
+        st.warning("❗ No combinations reached the net profit target. Try adjusting your parameters.")
+
+    st.write(f"⏱️ Total runtime: {round(time.time() - start_time, 2)} seconds")
