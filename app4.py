@@ -2,49 +2,35 @@ import streamlit as st
 import pandas as pd
 import itertools
 import random
-import time
 
-st.set_page_config(page_title="EPP 1 Revenue Forecast Simulator", layout="wide")
+# -------------------------
+# PAGE SETUP
+# -------------------------
+st.set_page_config(page_title="EPP Revenue Forecast Simulator", layout="wide")
 st.title("EPP 1 Revenue Forecast Simulator")
 
 # -------------------------
-# USER INPUTS
+# SIDEBAR INPUTS
 # -------------------------
 st.sidebar.header("Simulation Settings")
 
-months = st.sidebar.slider("Number of Months (Forecast Period)", 1, 12, 6)
-net_target = st.sidebar.number_input("Net Profit Target ($)", value=1_000_000)
-near_target = st.sidebar.number_input("Near-Qualified Threshold ($)", value=800_000)
+months = st.sidebar.slider("Forecast Period (Months)", 1, 12, 6)
+net_target = st.sidebar.number_input("Net Profit Target", value=1_000_000)
+near_target_threshold = st.sidebar.number_input("Near-Target Threshold", value=800_000)
 coaching_price = st.sidebar.number_input("Coaching Price per Engagement", value=8750)
 
-total_simulations = st.sidebar.number_input("Total Number of Deal Plans to Simulate", value=100000, step=10000)
-batch_size = st.sidebar.number_input("Batch Size per Simulation Loop", value=1000, step=500)
+max_coaching_per_month = st.sidebar.number_input("Max Coaching Clients Per Month", value=5, min_value=0)
 
-min_deals = st.sidebar.number_input("Min Deals per Month", value=0)
-max_deals = st.sidebar.number_input("Max Deals per Month", value=3)
-deal_range = range(min_deals, max_deals + 1)
+deal_values = st.sidebar.multiselect("Deal Values", [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000], default=[500_000, 1_500_000, 2_500_000])
+commission_rates = st.sidebar.multiselect("Commission Rates", [0.05, 0.07, 0.11, 0.13, 0.17], default=[0.05, 0.11, 0.17])
 
-min_coaching = st.sidebar.number_input("Min Coaching Clients per Month", value=0)
-max_coaching = st.sidebar.number_input("Max Coaching Clients per Month", value=3)
-coaching_range = range(min_coaching, max_coaching + 1)
-
-deal_values = st.sidebar.multiselect(
-    "Deal Values",
-    [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000],
-    default=[500_000, 1_500_000, 2_500_000]
-)
-
-commission_rates = st.sidebar.multiselect(
-    "Commission Rates",
-    [0.05, 0.07, 0.11, 0.13, 0.17],
-    default=[0.05, 0.11, 0.17]
-)
+batch_size = st.sidebar.number_input("Simulation Batch Size", value=500, min_value=100)
+max_iterations = st.sidebar.number_input("Max Simulation Steps", value=50, min_value=1)
 
 # -------------------------
-# EXPENSES (Main Body)
+# DEFAULT EXPENSES
 # -------------------------
-st.markdown("## Monthly Expenses")
-
+st.subheader("Monthly Expenses")
 if "expenses" not in st.session_state:
     st.session_state.expenses = [
         {"label": "Travel & Expenses", "amount": 6000.0},
@@ -56,7 +42,7 @@ if "expenses" not in st.session_state:
         {"label": "AI/Automations", "amount": 250.0},
         {"label": "Software & SaaS Tools", "amount": 600.0},
         {"label": "Legal & Compliance Fees", "amount": 300.0},
-        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 300.0}
+        {"label": "Insurance (Liability, E&O, Cyber)", "amount": 300.0},
     ]
 
 for i, exp in enumerate(st.session_state.expenses):
@@ -71,81 +57,98 @@ if st.button("Add Another Expense"):
     st.session_state.expenses.append({"label": f"Expense {len(st.session_state.expenses)+1}", "amount": 0.0})
     st.rerun()
 
-total_expense_per_month = sum(exp["amount"] for exp in st.session_state.expenses)
-st.markdown(f"**Total Monthly Expense:** ${total_expense_per_month:,.2f}")
+monthly_expense = sum(exp["amount"] for exp in st.session_state.expenses)
+st.markdown(f"**Total Monthly Expense:** ${monthly_expense:,.2f}")
 
 # -------------------------
-# SIMULATION ENGINE
+# RUN SIMULATION
 # -------------------------
 if st.button("Run Simulation"):
-    st.markdown("## 🔍 Simulating... Please wait.")
-    coaching_options = list(range(min_coaching, max_coaching + 1))
-    qualified = []
-    near_qualified = []
+    results_qualified = []
+    results_near = []
 
-    monthly_deal_variants = list(itertools.product(deal_values, commission_rates))
+    deal_options = list(itertools.product(deal_values, commission_rates))
 
-    progress = st.progress(0, text="Starting...")
+    progress = st.progress(0, text="Building monthly plans...")
+    for step in range(max_iterations):
+        progress.progress(step / max_iterations, f"Step {step + 1}/{max_iterations}")
 
-    for sim in range(0, total_simulations, batch_size):
-        for _ in range(batch_size):
-            coaching_total = sum(random.choices(coaching_options, k=months))
-            coaching_revenue = coaching_total * coaching_price
+        monthly_plan = []
+        total_coaching = 0
+        total_commission_stream = [0] * months
 
-            monthly_commission_2025 = [0] * months
+        for m in range(months):
+            coaching_clients = random.randint(0, max_coaching_per_month)
+            total_coaching += coaching_clients
 
-            for month in range(months):
-                deals = []
-                deal_count = random.randint(min_deals, max_deals)
-                possible_deals = random.sample(monthly_deal_variants, min(deal_count, len(monthly_deal_variants)))
-                for dv, cr in possible_deals:
-                    deals.append((dv, cr))
+            current_month_deals = random.sample(deal_options, k=min(len(deal_options), 3))
+            deal_mix = []
+            for deal_value, rate in current_month_deals:
+                count = random.randint(0, 2)
+                if count == 0:
+                    continue
+                commission = deal_value * rate * count
+                monthly_payment = commission / 12
+                for future_m in range(m + 2, m + 14):
+                    if future_m < months:
+                        total_commission_stream[future_m] += monthly_payment
+                deal_mix.append((count, deal_value, rate))
 
-                for deal_value, commission_rate in deals:
-                    commission = deal_value * commission_rate
-                    spread = commission / 12
-                    for j in range(month + 2, month + 14):
-                        if j < months:
-                            monthly_commission_2025[j] += spread
+            monthly_plan.append({
+                "month": m + 1,
+                "coaching_clients": coaching_clients,
+                "deals": deal_mix
+            })
 
-            commission_revenue = sum(monthly_commission_2025)
-            total_revenue = commission_revenue + coaching_revenue
-            total_expense = total_expense_per_month * months
-            net_profit = total_revenue - total_expense
+        coaching_revenue = total_coaching * coaching_price
+        commission_revenue = sum(total_commission_stream)
+        total_revenue = coaching_revenue + commission_revenue
+        total_expenses = monthly_expense * months
+        net_profit = total_revenue - total_expenses
 
-            result = {
-                "Total Coaching Clients": coaching_total,
-                "Total Coaching Revenue": coaching_revenue,
-                "Total Deal Revenue (Recognized)": commission_revenue,
-                "Total Revenue": round(total_revenue, 2),
-                "Total Expense": round(total_expense, 2),
-                "Net Profit": round(net_profit, 2)
-            }
+        result = {
+            "Monthly Plan": monthly_plan,
+            "Coaching Revenue": coaching_revenue,
+            "Deal Revenue (2025)": commission_revenue,
+            "Total Revenue": round(total_revenue, 2),
+            "Net Profit": round(net_profit, 2),
+            "Total Coaching Clients": total_coaching,
+            "Total Expense": total_expenses
+        }
 
-            if net_profit >= net_target:
-                qualified.append(result)
-            elif net_profit >= near_target:
-                near_qualified.append(result)
+        if net_profit >= net_target:
+            results_qualified.append(result)
+        elif net_profit >= near_target_threshold:
+            results_near.append(result)
 
-        progress.progress(min((sim + batch_size) / total_simulations, 1.0), text=f"Simulating... {sim + batch_size} / {total_simulations}")
+    progress.empty()
 
     # -------------------------
-    # RESULTS
+    # DISPLAY RESULTS
     # -------------------------
-    st.markdown("## ✅ Simulation Complete")
+    def flatten_plan(plan):
+        return ",".join(
+            f"M{p['month']}|C{p['coaching_clients']}|" +
+            "|".join([f"{d[0]}x{d[1]}@{int(d[2]*100)}%" for d in p['deals']])
+            for p in plan
+        )
 
-    if qualified:
-        st.success(f"🎯 {len(qualified)} Qualified Scenarios (≥ ${net_target:,})")
-        df_qualified = pd.DataFrame(qualified).sort_values(by="Net Profit", ascending=False)
-        st.dataframe(df_qualified.head(100))
-        st.download_button("Download Qualified Results", df_qualified.to_csv(index=False), "qualified_results.csv", "text/csv")
-    else:
-        st.warning("No qualified combinations met the $1M net profit goal.")
+    def display_results(label, data):
+        if not data:
+            return
+        st.subheader(f"{label} ({len(data)} found)")
+        df = pd.DataFrame(data)
+        df["Plan Summary"] = df["Monthly Plan"].apply(flatten_plan)
+        df_display = df[["Plan Summary", "Coaching Revenue", "Deal Revenue (2025)", "Total Revenue", "Total Expense", "Net Profit", "Total Coaching Clients"]]
+        st.dataframe(df_display.head(100), use_container_width=True)
 
-    if near_qualified:
-        st.info(f"🟡 {len(near_qualified)} Near-Qualified Scenarios (≥ ${near_target:,})")
-        df_near = pd.DataFrame(near_qualified).sort_values(by="Net Profit", ascending=False)
-        st.dataframe(df_near.head(100))
-        st.download_button("Download Near-Qualified Results", df_near.to_csv(index=False), "near_qualified_results.csv", "text/csv")
+        csv = df_display.to_csv(index=False).encode("utf-8")
+        st.download_button(f"Download {label} as CSV", data=csv, file_name=f"{label.lower().replace(' ', '_')}.csv")
+
+    if results_qualified:
+        display_results("Qualified Plans (≥ $1M Net Profit)", results_qualified)
     else:
-        st.warning("No near-qualified combinations (≥ $800K net profit) were found.")
+        st.warning("No qualified plans found.")
+
+    if results_near:
+        display_results("Near-Qualified Plans (≥ $800K Net Profit)", results_near)
