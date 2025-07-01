@@ -44,7 +44,6 @@ st.markdown("## Monthly Expenses")
 
 if "expenses" not in st.session_state:
     st.session_state.expenses = [
-        default_expenses = [
     {"label": "Travel & Expenses", "amount": 6000.0},
     {"label": "Marketing Costs", "amount": 600.0},
     {"label": "Marketing Agency", "amount": 3000.0},
